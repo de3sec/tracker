@@ -1,31 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
-const DATA_FILE = path.join(DATA_DIR, "data.json");
-
-function ensureDirectoryExistence(filePath: string) {
-  const dirname = path.dirname(filePath);
-  if (fs.existsSync(dirname)) {
-    return true;
-  }
-  ensureDirectoryExistence(dirname);
-  fs.mkdirSync(dirname);
-}
-
-function readData() {
-  if (!fs.existsSync(DATA_FILE)) {
-    return [];
-  }
-  const raw = fs.readFileSync(DATA_FILE, "utf-8");
-  return JSON.parse(raw);
-}
-
-function writeData(data: unknown[]) {
-  ensureDirectoryExistence(DATA_FILE);
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
+import { updateClaimInSheets, deleteClaimFromSheets, getClaimsFromSheets } from "@/lib/google-sheets";
 
 export async function PUT(
   request: NextRequest,
@@ -34,34 +8,37 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const claims = readData();
 
-    const index = claims.findIndex(
-      (c: Record<string, unknown>) => c.id === id
-    );
-    if (index === -1) {
-      return NextResponse.json({ error: "Claim not found" }, { status: 404 });
-    }
-
-    claims[index] = {
-      ...claims[index],
+    const updateData = {
       date: body.date,
       partyName: body.partyName,
       vehicleNumber: body.vehicleNumber || "",
       tyreModel: body.tyreModel,
       stencilNumber: body.stencilNumber,
-      claimDispatchDate: body.claimDispatchDate,
-      claimDispatchPlace: body.claimDispatchPlace,
+      claimDispatchDate: body.claimDispatchDate || null,
+      claimDispatchPlace: body.claimDispatchPlace || null,
       claimPassAmount: body.claimPassAmount ?? null,
       claimReturnDate: body.claimReturnDate || null,
     };
 
-    writeData(claims);  
-    return NextResponse.json(claims[index]);
+    await updateClaimInSheets(id, updateData);
+    
+    // We should fetch the claims to return the updated record like the original code did
+    const claims = await getClaimsFromSheets();
+    const updatedClaim = claims.find(c => c.id === id);
+
+    if (!updatedClaim) {
+      return NextResponse.json({ error: "Claim not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(updatedClaim);
   } catch (error) {
     console.error("PUT /api/claims/[id] error:", error);
+    const message = error instanceof Error && error.message.includes("Google Sheets is not available")
+      ? error.message
+      : "Failed to update claim";
     return NextResponse.json(
-      { error: "Failed to update claim" },
+      { error: message },
       { status: 500 }
     );
   }
@@ -73,23 +50,16 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const claims = readData();
-
-    const index = claims.findIndex(
-      (c: Record<string, unknown>) => c.id === id
-    );
-    if (index === -1) {
-      return NextResponse.json({ error: "Claim not found" }, { status: 404 });
-    }
-
-    claims.splice(index, 1);
-    writeData(claims);
+    await deleteClaimFromSheets(id);
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("DELETE /api/claims/[id] error:", error);
+    const message = error instanceof Error && error.message.includes("Google Sheets is not available")
+      ? error.message
+      : "Failed to delete claim";
     return NextResponse.json(
-      { error: "Failed to delete claim" },
+      { error: message },
       { status: 500 }
     );
   }

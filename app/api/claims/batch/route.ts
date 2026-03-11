@@ -1,33 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { randomUUID } from "crypto";
-
-// Fallback to local process.cwd() if DATA_DIR env var isn't set (e.g. standard dev/build)
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
-const DATA_FILE = path.join(DATA_DIR, "data.json");
-
-function ensureDirectoryExistence(filePath: string) {
-  const dirname = path.dirname(filePath);
-  if (fs.existsSync(dirname)) {
-    return true;
-  }
-  ensureDirectoryExistence(dirname);
-  fs.mkdirSync(dirname);
-}
-
-function readData() {
-  if (!fs.existsSync(DATA_FILE)) {
-    return [];
-  }
-  const raw = fs.readFileSync(DATA_FILE, "utf-8");
-  return JSON.parse(raw);
-}
-
-function writeData(data: unknown[]) {
-  ensureDirectoryExistence(DATA_FILE);
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
+import { addClaimsBatchToSheets, ClaimData } from "@/lib/google-sheets";
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,7 +10,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Expected an array of claims" }, { status: 400 });
     }
 
-    const claims = readData();
+    const newClaims: ClaimData[] = [];
     let newClaimsAdded = 0;
 
     for (const item of body) {
@@ -45,7 +18,7 @@ export async function POST(request: NextRequest) {
          continue; // basic validation for CSV rows missing required fields
       }
 
-      const newClaim = {
+      const newClaim: ClaimData = {
         id: randomUUID(),
         date: item.date,
         partyName: item.partyName,
@@ -59,17 +32,23 @@ export async function POST(request: NextRequest) {
             : null,
         claimReturnDate: item.claimReturnDate || null,
       };
-      claims.push(newClaim);
+      
+      newClaims.push(newClaim);
       newClaimsAdded++;
     }
 
-    writeData(claims);
+    if (newClaims.length > 0) {
+      await addClaimsBatchToSheets(newClaims);
+    }
 
     return NextResponse.json({ message: `Successfully imported ${newClaimsAdded} claims.` }, { status: 201 });
   } catch (error) {
     console.error("POST /api/claims/batch error:", error);
+    const message = error instanceof Error && error.message.includes("Google Sheets is not available")
+      ? error.message
+      : "Failed to batch import claims";
     return NextResponse.json(
-      { error: "Failed to batch import claims" },
+      { error: message },
       { status: 500 }
     );
   }

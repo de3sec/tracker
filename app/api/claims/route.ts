@@ -1,36 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { randomUUID } from "crypto";
-
-const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
-const DATA_FILE = path.join(DATA_DIR, "data.json");
-
-function ensureDirectoryExistence(filePath: string) {
-  const dirname = path.dirname(filePath);
-  if (fs.existsSync(dirname)) {
-    return true;
-  }
-  ensureDirectoryExistence(dirname);
-  fs.mkdirSync(dirname);
-}
-
-function readData() {
-  if (!fs.existsSync(DATA_FILE)) {
-    return [];
-  }
-  const raw = fs.readFileSync(DATA_FILE, "utf-8");
-  return JSON.parse(raw);
-}
-
-function writeData(data: unknown[]) {
-  ensureDirectoryExistence(DATA_FILE);
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
+import { getClaimsFromSheets, addClaimToSheets } from "@/lib/google-sheets";
 
 export async function GET(request: NextRequest) {
   try {
-    const claims = readData();
+    const claims = await getClaimsFromSheets();
     const { searchParams } = new URL(request.url);
 
     const search = searchParams.get("search")?.toLowerCase() || "";
@@ -41,12 +15,12 @@ export async function GET(request: NextRequest) {
     const sortBy = searchParams.get("sortBy") || "date";
     const sortOrder = searchParams.get("sortOrder") || "desc";
 
-    let filtered = claims;
+    let filtered = claims as Record<string, any>[];
 
     // Search filter
     if (search) {
       filtered = filtered.filter(
-        (c: Record<string, unknown>) =>
+        (c) =>
           (c.partyName as string)?.toLowerCase().includes(search) ||
           (c.vehicleNumber as string)?.toLowerCase().includes(search) ||
           (c.tyreModel as string)?.toLowerCase().includes(search) ||
@@ -56,13 +30,13 @@ export async function GET(request: NextRequest) {
 
     // Status filter
     if (status !== "all") {
-      filtered = filtered.filter((c: Record<string, unknown>) => {
+      filtered = filtered.filter((c) => {
         if (status === "passed")
           return typeof c.claimPassAmount === "number";
         if (status === "cancelled")
           return c.claimPassAmount === "CANCEL";
         if (status === "pending")
-          return c.claimPassAmount === null || c.claimPassAmount === undefined;
+          return c.claimPassAmount === null || c.claimPassAmount === undefined || c.claimPassAmount === "";
         return true;
       });
     }
@@ -70,7 +44,7 @@ export async function GET(request: NextRequest) {
     // Dispatch place filter
     if (dispatchPlace !== "all") {
       filtered = filtered.filter(
-        (c: Record<string, unknown>) =>
+        (c) =>
           (c.claimDispatchPlace as string)?.toLowerCase() ===
           dispatchPlace.toLowerCase()
       );
@@ -79,17 +53,17 @@ export async function GET(request: NextRequest) {
     // Date range filter
     if (dateFrom) {
       filtered = filtered.filter(
-        (c: Record<string, unknown>) => (c.date as string) >= dateFrom
+        (c) => (c.date as string) >= dateFrom
       );
     }
     if (dateTo) {
       filtered = filtered.filter(
-        (c: Record<string, unknown>) => (c.date as string) <= dateTo
+        (c) => (c.date as string) <= dateTo
       );
     }
 
     // Sorting
-    filtered.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+    filtered.sort((a, b) => {
       let valA: unknown, valB: unknown;
 
       switch (sortBy) {
@@ -117,50 +91,53 @@ export async function GET(request: NextRequest) {
       }
 
       if (valA === valB) return 0;
-      if (valA === null || valA === undefined) return 1;
-      if (valB === null || valB === undefined) return -1;
+      if (valA === null || valA === undefined || valA === "") return 1;
+      if (valB === null || valB === undefined || valB === "") return -1;
 
       const comparison = valA < valB ? -1 : 1;
       return sortOrder === "asc" ? comparison : -comparison;
     });
 
     // Compute stats
-    const allClaims = readData();
+    const allClaims = await getClaimsFromSheets() as Record<string, any>[];
     const stats = {
       total: allClaims.length,
       totalPassedAmount: allClaims
         .filter(
-          (c: Record<string, unknown>) => typeof c.claimPassAmount === "number"
+          (c) => typeof c.claimPassAmount === "number"
         )
         .reduce(
-          (sum: number, c: Record<string, unknown>) =>
+          (sum: number, c) =>
             sum + (c.claimPassAmount as number),
           0
         ),
       cancelled: allClaims.filter(
-        (c: Record<string, unknown>) => c.claimPassAmount === "CANCEL"
+        (c) => c.claimPassAmount === "CANCEL"
       ).length,
       pending: allClaims.filter(
-        (c: Record<string, unknown>) =>
-          c.claimPassAmount === null || c.claimPassAmount === undefined
+        (c) =>
+          c.claimPassAmount === null || c.claimPassAmount === undefined || c.claimPassAmount === ""
       ).length,
       passed: allClaims.filter(
-        (c: Record<string, unknown>) => typeof c.claimPassAmount === "number"
+        (c) => typeof c.claimPassAmount === "number"
       ).length,
     };
 
     // Get unique dispatch places for filter dropdown
     const dispatchPlaces = [
       ...new Set(
-        allClaims.map((c: Record<string, unknown>) => c.claimDispatchPlace)
+        allClaims.map((c) => c.claimDispatchPlace)
       ),
     ].filter(Boolean);
 
     return NextResponse.json({ claims: filtered, stats, dispatchPlaces });
   } catch (error) {
     console.error("GET /api/claims error:", error);
+    const message = error instanceof Error && error.message.includes("Google Sheets is not available")
+      ? error.message
+      : "Failed to read claims";
     return NextResponse.json(
-      { error: "Failed to read claims" },
+      { error: message },
       { status: 500 }
     );
   }
@@ -169,7 +146,6 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const claims = readData();
 
     const newClaim = {
       id: randomUUID(),
@@ -178,20 +154,22 @@ export async function POST(request: NextRequest) {
       vehicleNumber: body.vehicleNumber || "",
       tyreModel: body.tyreModel,
       stencilNumber: body.stencilNumber,
-      claimDispatchDate: body.claimDispatchDate,
-      claimDispatchPlace: body.claimDispatchPlace,
+      claimDispatchDate: body.claimDispatchDate || null,
+      claimDispatchPlace: body.claimDispatchPlace || null,
       claimPassAmount: body.claimPassAmount ?? null,
       claimReturnDate: body.claimReturnDate || null,
     };
 
-    claims.push(newClaim);
-    writeData(claims);
+    await addClaimToSheets(newClaim);
 
     return NextResponse.json(newClaim, { status: 201 });
   } catch (error) {
     console.error("POST /api/claims error:", error);
+    const message = error instanceof Error && error.message.includes("Google Sheets is not available")
+      ? error.message
+      : "Failed to create claim";
     return NextResponse.json(
-      { error: "Failed to create claim" },
+      { error: message },
       { status: 500 }
     );
   }
