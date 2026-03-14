@@ -116,6 +116,8 @@ export default function ClaimTable({ claims, sortBy, sortOrder, onSort, onDelete
     { key: "partyName", label: "Party Name" },
     { key: "tyreModel", label: "Tyre Model" },
     { key: "claimPassAmount", label: "Status / Amount" },
+    { key: "claimDispatchDate", label: "Dispatch Date" },
+    { key: "claimReturnDate", label: "Return Date" },
   ];
 
   if (claims.length === 0) {
@@ -184,6 +186,24 @@ export default function ClaimTable({ claims, sortBy, sortOrder, onSort, onDelete
                   </TableCell>
                   <TableCell>
                     <StatusBadge amount={claim.claimPassAmount} />
+                  </TableCell>
+                  <TableCell className="text-slate-300 text-sm font-mono">
+                    {claim.claimDispatchDate
+                      ? new Date(claim.claimDispatchDate).toLocaleDateString("en-IN", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })
+                      : "—"}
+                  </TableCell>
+                  <TableCell className="text-slate-300 text-sm font-mono">
+                    {claim.claimReturnDate
+                      ? new Date(claim.claimReturnDate).toLocaleDateString("en-IN", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })
+                      : "—"}
                   </TableCell>
                   <TableCell className="text-slate-400 text-sm font-mono">
                     {claim.vehicleNumber || "—"}

@@ -85,6 +85,14 @@ export async function GET(request: NextRequest) {
           valB =
             typeof b.claimPassAmount === "number" ? b.claimPassAmount : -1;
           break;
+        case "claimDispatchDate":
+          valA = a.claimDispatchDate;
+          valB = b.claimDispatchDate;
+          break;
+        case "claimReturnDate":
+          valA = a.claimReturnDate;
+          valB = b.claimReturnDate;
+          break;
         default:
           valA = a.date;
           valB = b.date;
@@ -94,8 +102,12 @@ export async function GET(request: NextRequest) {
       if (valA === null || valA === undefined || valA === "") return 1;
       if (valB === null || valB === undefined || valB === "") return -1;
 
-      const comparison = valA < valB ? -1 : 1;
-      return sortOrder === "asc" ? comparison : -comparison;
+      const isDateField = sortBy === "date" || sortBy === "claimDispatchDate" || sortBy === "claimReturnDate";
+      const comparison = isDateField
+        ? (new Date(valA as string).getTime() - new Date(valB as string).getTime())
+        : (valA < valB ? -1 : 1);
+      const result = isDateField ? (comparison < 0 ? -1 : comparison > 0 ? 1 : 0) : comparison;
+      return sortOrder === "asc" ? result : -result;
     });
 
     // Compute stats
