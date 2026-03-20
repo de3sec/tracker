@@ -51,9 +51,7 @@ export default function ClaimForm({ initialData, mode }: ClaimFormProps) {
     vehicleNumber: initialData?.vehicleNumber || "",
     tyreModel: initialData?.tyreModel || "",
     stencilNumber: initialData?.stencilNumber || "",
-    claimDispatchDate:
-      initialData?.claimDispatchDate ||
-      new Date().toISOString().split("T")[0],
+    claimDispatchDate: initialData?.claimDispatchDate ?? "",
     claimDispatchPlace: initialData?.claimDispatchPlace || "",
     claimPassAmount: initialData?.claimPassAmount ?? null,
     claimReturnDate: initialData?.claimReturnDate || "",
@@ -97,8 +95,6 @@ export default function ClaimForm({ initialData, mode }: ClaimFormProps) {
       newErrors.tyreModel = "Tyre model is required";
     if (!formData.stencilNumber || formData.stencilNumber.trim().length === 0)
       newErrors.stencilNumber = "Stencil number is required";
-    if (!formData.claimDispatchDate)
-      newErrors.claimDispatchDate = "Dispatch date is required";
     if (
       formData.claimDispatchDate &&
       formData.date &&
@@ -320,7 +316,7 @@ export default function ClaimForm({ initialData, mode }: ClaimFormProps) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="claimDispatchDate" className="text-slate-300">
-                      Dispatch Date <span className="text-red-400">*</span>
+                      Dispatch Date
                     </Label>
                     <Input
                       id="claimDispatchDate"
