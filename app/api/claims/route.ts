@@ -142,7 +142,42 @@ export async function GET(request: NextRequest) {
       ),
     ].filter(Boolean);
 
-    return NextResponse.json({ claims: filtered, stats, dispatchPlaces });
+    // Pagination: when page or limit provided, slice results; otherwise return all (backward compatible)
+    const pageParam = searchParams.get("page");
+    const limitParam = searchParams.get("limit");
+    const usePagination = pageParam !== null || limitParam !== null;
+
+    const totalCount = filtered.length;
+    let resultClaims = filtered;
+    let pageNum = 1;
+    let limitNum = totalCount;
+    let totalPages = 1;
+
+    if (usePagination) {
+      pageNum = Math.max(1, parseInt(pageParam || "1", 10));
+      limitNum =
+        limitParam === "0" || limitParam === "all"
+          ? 0
+          : Math.min(100, Math.max(1, parseInt(limitParam || "20", 10)));
+
+      if (limitNum === 0) {
+        limitNum = totalCount;
+        totalPages = 1;
+      } else {
+        totalPages = Math.ceil(totalCount / limitNum) || 1;
+        resultClaims = filtered.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+      }
+    }
+
+    return NextResponse.json({
+      claims: resultClaims,
+      stats,
+      dispatchPlaces,
+      totalCount,
+      page: pageNum,
+      limit: limitNum,
+      totalPages,
+    });
   } catch (error) {
     console.error("GET /api/claims error:", error);
     const message = error instanceof Error && error.message.includes("Google Sheets is not available")

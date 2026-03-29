@@ -25,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import PaginationControls from "@/components/PaginationControls";
 import { useState } from "react";
 
 interface Claim {
@@ -46,6 +47,12 @@ interface ClaimTableProps {
   sortOrder: string;
   onSort: (column: string) => void;
   onDelete: (id: string) => void;
+  totalCount?: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+  onPageChange?: (page: number) => void;
+  onLimitChange?: (limit: number) => void;
 }
 
 function getStatus(amount: number | string | null) {
@@ -98,7 +105,19 @@ function SortIcon({ column, sortBy, sortOrder }: { column: string; sortBy: strin
   );
 }
 
-export default function ClaimTable({ claims, sortBy, sortOrder, onSort, onDelete }: ClaimTableProps) {
+export default function ClaimTable({
+  claims,
+  sortBy,
+  sortOrder,
+  onSort,
+  onDelete,
+  totalCount,
+  page = 1,
+  limit = 20,
+  totalPages = 1,
+  onPageChange,
+  onLimitChange,
+}: ClaimTableProps) {
   const router = useRouter();
   const [deleteDialog, setDeleteDialog] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -257,11 +276,22 @@ export default function ClaimTable({ claims, sortBy, sortOrder, onSort, onDelete
             </TableBody>
           </Table>
         </div>
-        <div className="border-t border-slate-800 px-4 py-3">
-          <p className="text-xs text-slate-500">
-            Showing {claims.length} claim{claims.length !== 1 ? "s" : ""}
-          </p>
-        </div>
+        {onPageChange ? (
+          <PaginationControls
+            page={page}
+            totalPages={totalPages ?? 1}
+            totalCount={totalCount ?? claims.length}
+            limit={limit}
+            onPageChange={onPageChange}
+            onLimitChange={onLimitChange}
+          />
+        ) : (
+          <div className="border-t border-slate-800 px-4 py-3">
+            <p className="text-xs text-slate-500">
+              Showing {claims.length} claim{claims.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Delete Confirmation Dialog */}

@@ -53,7 +53,18 @@ export default function DashboardPage() {
   const [sortBy, setSortBy] = useState("date");
   const [sortOrder, setSortOrder] = useState("desc");
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset to page 1 when filters or sort change
+  useEffect(() => {
+    setPage(1);
+  }, [search, status, dispatchPlace, dateFrom, dateTo, sortBy, sortOrder]);
 
   const fetchClaims = useCallback(async () => {
     const params = new URLSearchParams();
@@ -64,6 +75,8 @@ export default function DashboardPage() {
     if (dateTo) params.set("dateTo", dateTo);
     params.set("sortBy", sortBy);
     params.set("sortOrder", sortOrder);
+    params.set("page", String(page));
+    params.set("limit", String(limit));
 
     try {
       const res = await fetch(`/api/claims?${params.toString()}`);
@@ -71,12 +84,17 @@ export default function DashboardPage() {
       setClaims(data.claims);
       setStats(data.stats);
       setDispatchPlaces(data.dispatchPlaces);
+      setTotalCount(data.totalCount ?? data.claims.length);
+      setTotalPages(data.totalPages ?? 1);
+      setPage((p) =>
+        data.totalPages && p > data.totalPages ? Math.max(1, data.totalPages) : p
+      );
     } catch (error) {
       console.error("Failed to fetch claims:", error);
     } finally {
       setLoading(false);
     }
-  }, [search, status, dispatchPlace, dateFrom, dateTo, sortBy, sortOrder]);
+  }, [search, status, dispatchPlace, dateFrom, dateTo, sortBy, sortOrder, page, limit]);
 
   useEffect(() => {
     fetchClaims();
@@ -108,37 +126,61 @@ export default function DashboardPage() {
     setDispatchPlace("all");
     setDateFrom("");
     setDateTo("");
+    setPage(1);
   };
 
-  const exportToCSV = () => {
-    if (!claims || claims.length === 0) {
-      toast.error("No data to export");
-      return;
+  const exportToCSV = async () => {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (status !== "all") params.set("status", status);
+    if (dispatchPlace !== "all") params.set("dispatchPlace", dispatchPlace);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    params.set("sortBy", sortBy);
+    params.set("sortOrder", sortOrder);
+    params.set("limit", "0");
+
+    try {
+      const res = await fetch(`/api/claims?${params.toString()}`);
+      const data = await res.json();
+      const exportClaims = data.claims ?? [];
+
+      if (!exportClaims || exportClaims.length === 0) {
+        toast.error("No data to export");
+        return;
+      }
+
+      const csvData = exportClaims.map((c: Claim) => ({
+        Date: c.date,
+        "Party Name": c.partyName,
+        "Vehicle Number": c.vehicleNumber,
+        "Tyre Model": c.tyreModel,
+        "Stencil Number": c.stencilNumber,
+        "Dispatch Date": c.claimDispatchDate || "",
+        "Dispatch Place": c.claimDispatchPlace || "",
+        "Passed Amount": c.claimPassAmount === null ? "" : c.claimPassAmount,
+        "Return Date": c.claimReturnDate || "",
+      }));
+
+      const csv = Papa.unparse(csvData);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute(
+        "download",
+        `claims_export_${new Date().toISOString().split("T")[0]}.csv`
+      );
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success("CSV Exported successfully");
+    } catch (error) {
+      console.error("Export failed:", error);
+      toast.error("Failed to export CSV");
     }
-
-    const csvData = claims.map(c => ({
-      "Date": c.date,
-      "Party Name": c.partyName,
-      "Vehicle Number": c.vehicleNumber,
-      "Tyre Model": c.tyreModel,
-      "Stencil Number": c.stencilNumber,
-      "Dispatch Date": c.claimDispatchDate || "",
-      "Dispatch Place": c.claimDispatchPlace || "",
-      "Passed Amount": c.claimPassAmount === null ? "" : c.claimPassAmount,
-      "Return Date": c.claimReturnDate || "",
-    }));
-
-    const csv = Papa.unparse(csvData);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", `claims_export_${new Date().toISOString().split("T")[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    toast.success("CSV Exported successfully");
   };
 
   const importCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -272,13 +314,24 @@ export default function DashboardPage() {
             </svg>
           </div>
         ) : (
-          <ClaimTable
-            claims={claims}
-            sortBy={sortBy}
-            sortOrder={sortOrder}
-            onSort={handleSort}
-            onDelete={handleDelete}
-          />
+          <>
+            <ClaimTable
+              claims={claims}
+              sortBy={sortBy}
+              sortOrder={sortOrder}
+              onSort={handleSort}
+              onDelete={handleDelete}
+              totalCount={totalCount}
+              page={page}
+              limit={limit}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              onLimitChange={(newLimit) => {
+                setLimit(newLimit);
+                setPage(1);
+              }}
+            />
+          </>
         )}
       </main>
     </div>
